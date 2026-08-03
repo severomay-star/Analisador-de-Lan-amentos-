@@ -1,76 +1,91 @@
 import pandas as pd
 import streamlit as st
+from pytrends.request import TrendReq
 
 # Configuração inicial da página
 st.set_page_config(
-    page_title="Painel de Inteligência de Mercado", page_icon="📊", layout="wide"
+    page_title="Painel de Inteligência de Mercado - Google Trends",
+    page_icon="🤖",
+    layout="wide",
 )
 
-st.title("📊 Painel de Inteligência de Mercado - Infoprodutos")
+st.title("🤖 Painel Automatizado de Inteligência de Mercado (Google Trends)")
 st.write(
-    "Monitore a temperatura de produtos na Hotmart e o volume de anúncios dos concorrentes."
+    "Este painel utiliza um robô para buscar o interesse de busca em tempo"
+    " real direto do Google Trends."
 )
 
-# 1. Carregando os dados da planilha local (certifique-se de que o arquivo está na mesma pasta)
-try:
-  df = pd.read_csv("dados_cursos.csv")
-except FileNotFoundError:
-  st.error(
-    "⚠️ O arquivo 'dados_cursos.csv' não foi encontrado na pasta. Por favor,"
-    " adicione-o ao repositório."
+
+# Função para buscar dados do Google Trends de forma automatizada
+@st.cache_data(
+    ttl=3600
+)  # Salva em cache por 1 hora para não sobrecarregar a API do Google
+def buscar_dados_trends(termos):
+  try:
+    # Conectando ao Google Trends (idioma PT, fuso do Brasil)
+    pytrends = TrendReq(hl="pt-BR", tz=360)
+
+    # Construindo a carga dos termos para o Brasil nos últimos 3 meses
+    pytrends.build_payload(
+        termos, cat=0, timeframe="today 3-m", geo="BR", gprop=""
+    )
+
+    # Pegando o interesse ao longo do tempo
+    df_trends = pytrends.interest_over_time()
+
+    if not df_trends.empty:
+      # Remove a coluna 'isPartial' se existir
+      if "isPartial" in df_trends.columns:
+        df_trends = df_trends.drop(columns=["isPartial"])
+      return df_trends
+    else:
+      return None
+  except Exception as e:
+    st.error(f"Erro ao buscar dados do Google Trends: {e}")
+    return None
+
+
+# 1. Defina aqui os termos que você quer monitorar automaticamente
+# (Você pode mudar para os termos do seu nicho!)
+termos_para_monitorar = [
+    "tráfego pago",
+    "lançamento de infoprodutos",
+    "hotmart",
+    "marketing digital",
+]
+
+st.sidebar.header("🔍 Configuração do Robô")
+st.sidebar.info(
+    "O robô está monitorando automaticamente os termos configurados no código."
+)
+
+# 2. Executando a busca com o robô
+with st.spinner(
+    "🤖 Robô buscando dados atualizados no Google Trends... Aguarde um"
+    " momento..."
+):
+  df_dados = buscar_dados_trends(termos_para_monitorar)
+
+# 3. Exibindo os resultados no painel
+if df_dados is not None:
+  st.markdown("---")
+  st.subheader("📈 Evolução do Interesse de Busca (Últimos 3 Meses)")
+  st.write(
+    "Escala de 0 a 100 indicando o interesse relativo de busca pelo termo no"
+    " Brasil."
   )
-  st.stop()
 
-# 2. Barra Lateral (Sidebar) para os Filtros
-st.sidebar.header("🔍 Filtros de Análise")
+  # Exibindo o Gráfico de Linhas do Streamlit nativo (perfeito para o Trends)
+  st.line_chart(df_dados)
 
-# Verificando se a coluna 'nicho' existe na planilha
-if "nicho" in df.columns:
-  # Criando a opção de "Todos" + os nichos únicos encontrados na planilha
-  nichos_disponiveis = ["Todos"] + list(df["nicho"].unique())
-  nicho_selecionado = st.sidebar.selectbox(
-    "Selecione o Nicho", nichos_disponiveis
-  )
+  # Exibindo a Tabela com os dados mais recentes
+  st.markdown("---")
+  st.subheader("📋 Dados Brutos Recentes")
+  st.dataframe(df_dados.tail(10), use_container_width=True)
 
-  # Filtrando o DataFrame com base na escolha do usuário
-  if nicho_selecionado != "Todos":
-    df_filtrado = df[df["nicho"] == nicho_selecionado]
-  else:
-    df_filtrado = df
 else:
-  st.sidebar.warning(
-    "A coluna 'nicho' não foi encontrada na sua planilha 'dados_cursos.csv'."
+  st.warning(
+    "⚠️ Não foi possível carregar os dados no momento. O Google Trends pode"
+    " ter bloqueado temporariamente as requisições (muito comum em testes"
+    " rápidos). Tente recarregar a página em alguns instantes."
   )
-  df_filtrado = df
-
-# 3. Exibindo Métricas Principais (KPIs) com base nos dados filtrados
-st.markdown("---")
-col1, col2, col3 = st.columns(3)
-
-with col1:
-  total_cursos = len(df_filtrado)
-  st.metric("Total de Produtos Monitorados", total_cursos)
-
-with col2:
-  if "temperatura" in df_filtrado.columns and not df_filtrado.empty:
-    media_temp = round(df_filtrado["temperatura"].mean(), 1)
-    st.metric("Temperatura Média", f"{media_temp}°")
-  else:
-    st.metric("Temperatura Média", "0°")
-
-with col3:
-  if "anuncios" in df_filtrado.columns and not df_filtrado.empty:
-    total_anuncios = int(df_filtrado["anuncios"].sum())
-    st.metric("Total de Anúncios Ativos (Meta)", total_anuncios)
-  else:
-    st.metric("Total de Anúncios Ativos (Meta)", 0)
-
-# 4. Tabela de Dados Detalhada
-st.markdown("---")
-st.subheader("📋 Detalhamento dos Concorrentes / Produtos")
-
-if not df_filtrado.empty:
-  # Se houver coluna de link da meta, podemos formatar ou apenas exibir a tabela
-  st.dataframe(df_filtrado, use_container_width=True)
-else:
-  st.info("Nenhum dado encontrado para este filtro.")
